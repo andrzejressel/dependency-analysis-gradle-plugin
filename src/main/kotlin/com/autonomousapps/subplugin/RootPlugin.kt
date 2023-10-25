@@ -9,6 +9,7 @@ import com.autonomousapps.internal.advice.DslKind
 import com.autonomousapps.internal.utils.log
 import com.autonomousapps.model.declaration.Configurations.CONF_ADVICE_ALL_CONSUMER
 import com.autonomousapps.model.declaration.Configurations.CONF_RESOLVED_DEPS_CONSUMER
+import com.autonomousapps.services.InMemoryCache
 import com.autonomousapps.tasks.BuildHealthTask
 import com.autonomousapps.tasks.ComputeDuplicateDependenciesTask
 import com.autonomousapps.tasks.GenerateBuildHealthTask
@@ -20,9 +21,7 @@ import org.gradle.kotlin.dsl.register
 
 internal const val DEPENDENCY_ANALYSIS_PLUGIN = "com.autonomousapps.dependency-analysis"
 
-/**
- * This "plugin" is applied to the root project only.
- */
+/** This "plugin" is applied to the root project only. */
 internal class RootPlugin(private val project: Project) {
 
   init {
@@ -42,23 +41,12 @@ internal class RootPlugin(private val project: Project) {
     conditionallyApplyToSubprojects()
   }
 
-  /** Only apply to all subprojects if user hasn't requested otherwise. See [shouldAutoApply]. */
-  private fun Project.conditionallyApplyToSubprojects() {
-    if (!shouldAutoApply()) {
-      logger.debug("Not applying plugin to all subprojects. User must apply to each manually")
-      return
-    }
-
-    logger.debug("Applying plugin to all subprojects")
-    subprojects {
-      logger.debug("Auto-applying to $path.")
-      apply(plugin = DEPENDENCY_ANALYSIS_PLUGIN)
-    }
-  }
-
   /** Root project. Configures lifecycle tasks that aggregates reports across all subprojects. */
   private fun Project.configureRootProject() {
     val paths = RootOutputPaths(this)
+
+    // Register this in the root project to centralize dependency synthesis files
+    InMemoryCache.register(this)
 
     val computeDuplicatesTask = tasks.register<ComputeDuplicateDependenciesTask>("computeDuplicateDependencies") {
       dependsOn(resolvedDepsConf)
@@ -85,6 +73,20 @@ internal class RootPlugin(private val project: Project) {
       shouldFail.set(generateBuildHealthTask.flatMap { it.outputFail })
       consoleReport.set(generateBuildHealthTask.flatMap { it.consoleOutput })
       printBuildHealth.set(printBuildHealth())
+    }
+  }
+
+  /** Only apply to all subprojects if user hasn't requested otherwise. See [shouldAutoApply]. */
+  private fun Project.conditionallyApplyToSubprojects() {
+    if (!shouldAutoApply()) {
+      logger.debug("Not applying plugin to all subprojects. User must apply to each manually")
+      return
+    }
+
+    logger.debug("Applying plugin to all subprojects")
+    subprojects {
+      logger.debug("Auto-applying to $path.")
+      apply(plugin = DEPENDENCY_ANALYSIS_PLUGIN)
     }
   }
 
